@@ -66,3 +66,40 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# ==========================================
+# ADDED: Visual Studio & Qt Specific Rules
+# ==========================================
+
+# Visual Studio Workspace & User settings (CRITICAL)
+.vs/
+*.user
+*.suo
+*.dbmdl
+*.jfm
+
+# Visual Studio Build/Output directories
+Debug/
+Release/
+x64/
+x86/
+bin/
+out/
+
+# Visual Studio Debugging & Compilation Artifacts
+*.idb
+*.tlog
+*.ipch
+
+# Qt Specific Auto-Generated Files
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*.stash
+.qmake.stash
+
+# Visual Studio Project Files
+# (Since your file shows you use CMake, Git should ignore the local VS files CMake generates)
+*.sln
+*.vcxproj
+*.vcxproj.filters
