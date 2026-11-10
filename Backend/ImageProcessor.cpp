@@ -1,173 +1,197 @@
 #include "ImageProcessor.h"
-#include <QColor>
-#include <algorithm>
+#include <stdexcept>
 #include <cmath>
-#include <QDebug>
+#include <algorithm>
 
-ImageProcessor::ImageProcessor() {}
+using namespace std;
 
-bool ImageProcessor::processBarcodeImage(const QString& imagePath, QVector<int>& outNormalizedRuns) {
-    QImage img(imagePath);
-    if (img.isNull()) {
-        qDebug() << "ImageProcessor: Failed to load image from" << imagePath;
-        return false;
+// Initializes the ImageProcessor with a default binarization threshold.
+
+ImageProcessor::ImageProcessor(int defaultThreshold)
+{
+    if (defaultThreshold < 0 || defaultThreshold > 255)
+    {
+        throw invalid_argument("Threshold must be between 0 and 255.");
     }
-    return processBarcodeImage(img, outNormalizedRuns);
+    thresholdValue = defaultThreshold;
 }
 
-bool ImageProcessor::processBarcodeImage(const QImage& image, QVector<int>& outNormalizedRuns) {
-    if (image.isNull()) return false;
+// Validates that an image is not null or empty.
 
-    QImage gray = convertToGrayscale(image);
-    QImage binary = applyOtsuThreshold(gray);
-
-    // Scan horizontally across the vertical midpoint
-    int midY = binary.height() / 2;
-    QVector<int> rawRuns = extractRunLengths(binary, midY);
-
-    if (rawRuns.isEmpty()) {
-        qDebug() << "ImageProcessor: No runs extracted from scanline.";
-        return false;
+void ImageProcessor::validateImage(const QImage& img) const
+{
+    if (img.isNull())
+    {
+        throw invalid_argument("Image is null or uninitialized.");
     }
-
-    qDebug() << "ImageProcessor: Raw runs (" << rawRuns.size() << "):" << rawRuns;
-
-    outNormalizedRuns = normalizeRuns(rawRuns);
-
-    qDebug() << "ImageProcessor: Normalized runs (" << outNormalizedRuns.size() << "):" << outNormalizedRuns;
-
-    return !outNormalizedRuns.isEmpty();
 }
 
-QImage ImageProcessor::convertToGrayscale(const QImage& src) {
-    // Convert to ARGB32 first so scanLine() always yields QRgb* safely
-    QImage argbSrc = src.convertToFormat(QImage::Format_ARGB32);
+// Loads a barcode image from disk file path. Returns true if successful.
 
-    QImage gray(argbSrc.size(), QImage::Format_Grayscale8);
-    for (int y = 0; y < argbSrc.height(); ++y) {
-        const QRgb* scan = reinterpret_cast<const QRgb*>(argbSrc.constScanLine(y));
-        uchar* dest = gray.scanLine(y);
-        for (int x = 0; x < argbSrc.width(); ++x) {
-            dest[x] = static_cast<uchar>(qGray(scan[x]));
-        }
+bool ImageProcessor::loadImage(const QString& filePath)
+{
+    QImage loadedImg;
+    if (loadedImg.load(filePath))
+    {
+        currentImage = loadedImg;
+        return true;
     }
-    return gray;
+    return false;
 }
 
-QImage ImageProcessor::applyOtsuThreshold(const QImage& grayImg) {
-    int histogram[256] = { 0 };
-    int totalPixels = grayImg.width() * grayImg.height();
+// Directly sets the image (useful when received from UI drag-and-drop or camera feeds).
 
-    for (int y = 0; y < grayImg.height(); ++y) {
-        const uchar* line = grayImg.constScanLine(y);
-        for (int x = 0; x < grayImg.width(); ++x) {
-            histogram[line[x]]++;
-        }
-    }
-
-    float sum = 0;
-    for (int i = 0; i < 256; ++i) sum += i * histogram[i];
-
-    float sumB = 0;
-    int wB = 0;
-    int wF = 0;
-    float varMax = 0;
-    int threshold = 128;
-
-    for (int t = 0; t < 256; ++t) {
-        wB += histogram[t];
-        if (wB == 0) continue;
-        wF = totalPixels - wB;
-        if (wF == 0) break;
-
-        sumB += static_cast<float>(t * histogram[t]);
-        float mB = sumB / wB;
-        float mF = (sum - sumB) / wF;
-
-        float varBetween = static_cast<float>(wB) * static_cast<float>(wF) * (mB - mF) * (mB - mF);
-        if (varBetween > varMax) {
-            varMax = varBetween;
-            threshold = t;
-        }
-    }
-
-    QImage binary(grayImg.size(), QImage::Format_Mono);
-    binary.setColor(0, qRgb(0, 0, 0));     // index 0 = black (bar)
-    binary.setColor(1, qRgb(255, 255, 255)); // index 1 = white (space)
-
-    for (int y = 0; y < grayImg.height(); ++y) {
-        const uchar* srcLine = grayImg.constScanLine(y);
-        for (int x = 0; x < grayImg.width(); ++x) {
-            // 1 for white (background), 0 for black (bar)
-            binary.setPixel(x, y, (srcLine[x] > threshold) ? 1 : 0);
-        }
-    }
-    return binary;
+void ImageProcessor::setImage(const QImage& img)
+{
+    validateImage(img);
+    currentImage = img;
 }
 
-QVector<int> ImageProcessor::extractRunLengths(const QImage& binaryImg, int scanlineY) {
-    QVector<int> rawRuns;
-    if (scanlineY < 0 || scanlineY >= binaryImg.height()) return rawRuns;
 
-    int width = binaryImg.width();
-    if (width == 0) return rawRuns;
+// Returns the currently stored image.
 
-    int currentPixel = binaryImg.pixelIndex(0, scanlineY);
-    int currentRunLength = 1;
-
-    for (int x = 1; x < width; ++x) {
-        int pixel = binaryImg.pixelIndex(x, scanlineY);
-        if (pixel == currentPixel) {
-            currentRunLength++;
-        }
-        else {
-            rawRuns.append(currentRunLength);
-            currentPixel = pixel;
-            currentRunLength = 1;
-        }
-    }
-    rawRuns.append(currentRunLength);
-
-    // Trim leading quiet zone: if the first run is white (pixel index 1), remove it
-    if (!rawRuns.isEmpty() && binaryImg.pixelIndex(0, scanlineY) == 1) {
-        rawRuns.removeFirst();
-    }
-
-    // Trim trailing quiet zone: if the last run is white, remove it
-    // After removing the leading white, the runs should start with black.
-    // A valid barcode ends with the Stop pattern's final black bar, so
-    // any trailing white run is a quiet zone.
-    if (rawRuns.size() >= 2) {
-        // Determine if the last run is white: after trimming leading white,
-        // runs alternate starting with black (index 0). Even-indexed runs are
-        // black, odd-indexed are white. If total count is even, the last run
-        // is white (odd index) — that's a trailing quiet zone.
-        if (rawRuns.size() % 2 == 0) {
-            rawRuns.removeLast();
-        }
-    }
-
-    return rawRuns;
+QImage ImageProcessor::getCurrentImage() const
+{
+    return currentImage;
 }
 
-QVector<int> ImageProcessor::normalizeRuns(const QVector<int>& rawRuns) {
-    QVector<int> normalized;
-    if (rawRuns.size() < 6) return normalized;
+// Converts a standard QImage to an 8-bit grayscale QImage.
+// Perfect for UI preview generation on the frontend.
 
-    // Code 128 symbol patterns consist of 6 runs per symbol (Start, Data, Checksum).
-    // The first 6 runs correspond to the Start C character, summing to exactly 11 module units.
-    int startSymbolPixelWidth = 0;
-    for (int i = 0; i < 6 && i < rawRuns.size(); ++i) {
-        startSymbolPixelWidth += rawRuns[i];
+QImage ImageProcessor::convertToGrayscale(const QImage& img) const
+{
+    validateImage(img);
+    return img.convertToFormat(QImage::Format_Grayscale8);
+}
+
+
+// Applies binary thresholding to a grayscale image. 
+// Pixels below the threshold become pure black (0), others become pure white (255).
+
+QImage ImageProcessor::applyThreshold(const QImage& grayImg, int threshold) const
+{
+    validateImage(grayImg);
+
+    // Ensure image is in grayscale format first
+    QImage gray = grayImg.convertToFormat(QImage::Format_Grayscale8);
+    QImage binaryImg(gray.size(), QImage::Format_RGB32);
+
+    QRgb black = qRgb(0, 0, 0);
+    QRgb white = qRgb(255, 255, 255);
+
+    for (int y = 0; y < gray.height(); y++)
+    {
+        const uchar* scanLine = gray.constScanLine(y);
+        for (int x = 0; x < gray.width(); x++)
+        {
+            // Compare pixel intensity against the threshold
+            if (scanLine[x] < threshold)
+            {
+                binaryImg.setPixel(x, y, black);
+            }
+            else
+            {
+                binaryImg.setPixel(x, y, white);
+            }
+        }
     }
 
-    double moduleWidth = static_cast<double>(startSymbolPixelWidth) / 11.0;
-    if (moduleWidth <= 0.0) return normalized;
+    return binaryImg;
+}
 
-    for (int run : rawRuns) {
-        int modules = static_cast<int>(std::round(static_cast<double>(run) / moduleWidth));
-        normalized.append(std::max(1, modules));
+// Scans a specific horizontal row (y-coordinate) across the binary barcode image.
+// Returns a vector of pixel color values (0 for black, 255 for white).
+
+vector<int> ImageProcessor::scanHorizontalLine(const QImage& binImg, int y) const
+{
+    validateImage(binImg);
+
+    if (y < 0 || y >= binImg.height())
+    {
+        throw out_of_range("Scan line y-coordinate is out of image bounds.");
     }
 
-    return normalized;
+    vector<int> linePixels;
+    linePixels.reserve(binImg.width());
+
+    for (int x = 0; x < binImg.width(); x++)
+    {
+        QRgb pixel = binImg.pixel(x, y);
+        // Check if the pixel is black (red component == 0)
+        bool isBlack = (qRed(pixel) == 0);
+        linePixels.push_back(isBlack ? 0 : 255);
+    }
+
+    return linePixels;
+}
+
+
+// Measures consecutive black and white runs along a scanned pixel line (Run-Length Encoding).
+
+vector<ColorRun> ImageProcessor::measureRuns(const vector<int>& scanLinePixels) const
+{
+    if (scanLinePixels.empty())
+    {
+        return {};
+    }
+
+    vector<ColorRun> runs;
+    bool currentIsBlack = (scanLinePixels[0] == 0);
+    int currentLength = 1;
+
+    for (size_t i = 1; i < scanLinePixels.size(); i++)
+    {
+        bool isBlack = (scanLinePixels[i] == 0);
+
+        if (isBlack == currentIsBlack)
+        {
+            currentLength++;
+        }
+        else
+        {
+            runs.push_back({ currentIsBlack, currentLength, 0 });
+            currentIsBlack = isBlack;
+            currentLength = 1;
+        }
+    }
+    // Push the final accumulated run
+    runs.push_back({ currentIsBlack, currentLength, 0 });
+
+    return runs;
+}
+
+// Normalizes raw pixel run widths into discrete module counts based on the base module width.
+
+vector<int> ImageProcessor::normalizeRuns(const vector<ColorRun>& runs, int baseModuleWidth) const
+{
+    if (baseModuleWidth <= 0)
+    {
+        throw invalid_argument("Base module width must be greater than 0.");
+    }
+
+    vector<int> moduleCounts;
+    moduleCounts.reserve(runs.size());
+
+    for (const auto& run : runs)
+    {
+        // Round to the nearest whole module count
+        int modules = static_cast<int>(round(static_cast<double>(run.pixelLength) / baseModuleWidth));
+        moduleCounts.push_back(max(1, modules)); // Ensure at least 1 module
+    }
+
+    return moduleCounts;
+}
+
+void ImageProcessor::setThreshold(int threshold)
+{
+    if (threshold < 0 || threshold > 255)
+    {
+        throw invalid_argument("Threshold must be between 0 and 255.");
+    }
+    thresholdValue = threshold;
+}
+
+int ImageProcessor::getThreshold() const
+{
+    return thresholdValue;
 }
