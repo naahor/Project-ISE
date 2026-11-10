@@ -5,8 +5,6 @@
 
 using namespace std;
 
-// Initializes the ImageProcessor with a default binarization threshold.
-
 ImageProcessor::ImageProcessor(int defaultThreshold)
 {
     if (defaultThreshold < 0 || defaultThreshold > 255)
@@ -16,22 +14,18 @@ ImageProcessor::ImageProcessor(int defaultThreshold)
     thresholdValue = defaultThreshold;
 }
 
-// Validates that an image is not null or empty.
-
-void ImageProcessor::validateImage(const QImage& img) const
+void ImageProcessor::validateImage(const cv::Mat& img) const
 {
-    if (img.isNull())
+    if (img.empty())
     {
-        throw invalid_argument("Image is null or uninitialized.");
+        throw invalid_argument("Image matrix is empty or uninitialized.");
     }
 }
 
-// Loads a barcode image from disk file path. Returns true if successful.
-
-bool ImageProcessor::loadImage(const QString& filePath)
+bool ImageProcessor::loadImage(const string& filePath)
 {
-    QImage loadedImg;
-    if (loadedImg.load(filePath))
+    cv::Mat loadedImg = cv::imread(filePath, cv::IMREAD_COLOR);
+    if (!loadedImg.empty())
     {
         currentImage = loadedImg;
         return true;
@@ -39,94 +33,61 @@ bool ImageProcessor::loadImage(const QString& filePath)
     return false;
 }
 
-// Directly sets the image (useful when received from UI drag-and-drop or camera feeds).
-
-void ImageProcessor::setImage(const QImage& img)
+void ImageProcessor::setImage(const cv::Mat& img)
 {
     validateImage(img);
-    currentImage = img;
+    currentImage = img.clone();
 }
 
-
-// Returns the currently stored image.
-
-QImage ImageProcessor::getCurrentImage() const
+cv::Mat ImageProcessor::getCurrentImage() const
 {
     return currentImage;
 }
 
-// Converts a standard QImage to an 8-bit grayscale QImage.
-// Perfect for UI preview generation on the frontend.
-
-QImage ImageProcessor::convertToGrayscale(const QImage& img) const
+cv::Mat ImageProcessor::convertToGrayscale(const cv::Mat& img) const
 {
     validateImage(img);
-    return img.convertToFormat(QImage::Format_Grayscale8);
-}
+    cv::Mat grayImg;
 
-
-// Applies binary thresholding to a grayscale image. 
-// Pixels below the threshold become pure black (0), others become pure white (255).
-
-QImage ImageProcessor::applyThreshold(const QImage& grayImg, int threshold) const
-{
-    validateImage(grayImg);
-
-    // Ensure image is in grayscale format first
-    QImage gray = grayImg.convertToFormat(QImage::Format_Grayscale8);
-    QImage binaryImg(gray.size(), QImage::Format_RGB32);
-
-    QRgb black = qRgb(0, 0, 0);
-    QRgb white = qRgb(255, 255, 255);
-
-    for (int y = 0; y < gray.height(); y++)
+    if (img.channels() == 1)
     {
-        const uchar* scanLine = gray.constScanLine(y);
-        for (int x = 0; x < gray.width(); x++)
-        {
-            // Compare pixel intensity against the threshold
-            if (scanLine[x] < threshold)
-            {
-                binaryImg.setPixel(x, y, black);
-            }
-            else
-            {
-                binaryImg.setPixel(x, y, white);
-            }
-        }
+        return img.clone();
     }
 
+    cv::cvtColor(img, grayImg, cv::COLOR_BGR2GRAY);
+    return grayImg;
+}
+
+cv::Mat ImageProcessor::applyThreshold(const cv::Mat& grayImg, int threshold) const
+{
+    validateImage(grayImg);
+    cv::Mat gray = convertToGrayscale(grayImg);
+    cv::Mat binaryImg;
+
+    cv::threshold(gray, binaryImg, threshold, 255, cv::THRESH_BINARY);
     return binaryImg;
 }
 
-// Scans a specific horizontal row (y-coordinate) across the binary barcode image.
-// Returns a vector of pixel color values (0 for black, 255 for white).
-
-vector<int> ImageProcessor::scanHorizontalLine(const QImage& binImg, int y) const
+vector<int> ImageProcessor::scanHorizontalLine(const cv::Mat& binImg, int y) const
 {
     validateImage(binImg);
 
-    if (y < 0 || y >= binImg.height())
+    if (y < 0 || y >= binImg.rows)
     {
         throw out_of_range("Scan line y-coordinate is out of image bounds.");
     }
 
     vector<int> linePixels;
-    linePixels.reserve(binImg.width());
+    linePixels.reserve(binImg.cols);
 
-    for (int x = 0; x < binImg.width(); x++)
+    const uchar* rowPtr = binImg.ptr<uchar>(y);
+    for (int x = 0; x < binImg.cols; x++)
     {
-        QRgb pixel = binImg.pixel(x, y);
-        // Check if the pixel is black (red component == 0)
-        bool isBlack = (qRed(pixel) == 0);
-        linePixels.push_back(isBlack ? 0 : 255);
+        linePixels.push_back(rowPtr[x] < 128 ? 0 : 255);
     }
 
     return linePixels;
 }
-
-
-// Measures consecutive black and white runs along a scanned pixel line (Run-Length Encoding).
 
 vector<ColorRun> ImageProcessor::measureRuns(const vector<int>& scanLinePixels) const
 {
@@ -154,13 +115,10 @@ vector<ColorRun> ImageProcessor::measureRuns(const vector<int>& scanLinePixels) 
             currentLength = 1;
         }
     }
-    // Push the final accumulated run
     runs.push_back({ currentIsBlack, currentLength, 0 });
 
     return runs;
 }
-
-// Normalizes raw pixel run widths into discrete module counts based on the base module width.
 
 vector<int> ImageProcessor::normalizeRuns(const vector<ColorRun>& runs, int baseModuleWidth) const
 {
@@ -174,12 +132,32 @@ vector<int> ImageProcessor::normalizeRuns(const vector<ColorRun>& runs, int base
 
     for (const auto& run : runs)
     {
-        // Round to the nearest whole module count
         int modules = static_cast<int>(round(static_cast<double>(run.pixelLength) / baseModuleWidth));
-        moduleCounts.push_back(max(1, modules)); // Ensure at least 1 module
+        moduleCounts.push_back(max(1, modules));
     }
 
     return moduleCounts;
+}
+
+QImage ImageProcessor::matToQImage(const cv::Mat& mat)
+{
+    if (mat.empty())
+    {
+        return QImage();
+    }
+
+    if (mat.type() == CV_8UC1)
+    {
+        return QImage(mat.data, mat.cols, mat.rows, static_cast<int>(mat.step), QImage::Format_Grayscale8).copy();
+    }
+    else if (mat.type() == CV_8UC3)
+    {
+        cv::Mat rgbMat;
+        cv::cvtColor(mat, rgbMat, cv::COLOR_BGR2RGB);
+        return QImage(rgbMat.data, rgbMat.cols, rgbMat.rows, static_cast<int>(rgbMat.step), QImage::Format_RGB888).copy();
+    }
+
+    return QImage();
 }
 
 void ImageProcessor::setThreshold(int threshold)
