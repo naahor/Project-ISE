@@ -1,6 +1,7 @@
 #pragma once
 #include <QMainWindow>
-
+#include "Decoder.h"
+#include "ImageProcessor.h"
 
 class QTabWidget;
 class QLineEdit;

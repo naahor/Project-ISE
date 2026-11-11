@@ -1,5 +1,5 @@
 #include "../Frontend/mainwindow.h"
-#include "../Encoder/Encoder.h"
+#include "Encoder/Encoder.h"
 #include "../Backend/imageGenerator/BarcodeImageGenerator.h"
 
 #include <QTabWidget>
@@ -204,10 +204,64 @@ void MainWindow::onUploadClicked() {
 
     m_readPreview->setPixmap(QPixmap::fromImage(img));
 
-    // TODO: call the decoder here when it is ready, e.g.
-    // std::string number = Decoder::decode(path.toStdString());
-    // m_decodedLabel->setText("Decoded number: " + QString::fromStdString(number));
-    m_decodedLabel->setText("Decoded number: -");
-    m_readStatus->setStyleSheet("color: gray;");
-    m_readStatus->setText("Image loaded (decoder not connected yet).");
+    try
+    {
+        ImageProcessor processor;
+
+        if (!processor.loadImage(path.toStdString()))
+        {
+            m_readStatus->setText("Could not process the uploaded image.");
+            return;
+        }
+
+        cv::Mat original = processor.getCurrentImage();
+
+        cv::Mat gray = processor.convertToGrayscale(original);
+
+        cv::Mat binary = processor.applyThreshold(
+            gray,
+            processor.getThreshold()
+        );
+
+        vector<int> pixels = processor.scanHorizontalLine(
+            binary,
+            binary.rows / 2
+        );
+
+        vector<ColorRun> runs = processor.measureRuns(pixels);
+
+        if (runs.empty())
+        {
+            m_readStatus->setText("No barcode detected.");
+            return;
+        }
+
+        int baseModuleWidth = runs[0].pixelLength;
+
+        for (int i = 1; i < runs.size(); i++)
+        {
+            if (runs[i].pixelLength < baseModuleWidth)
+            {
+                baseModuleWidth = runs[i].pixelLength;
+            }
+        }
+
+        vector<int> moduleCounts = processor.normalizeRuns(
+            runs,
+            baseModuleWidth
+        );
+
+        string decodedNumber = Decoder::decodeRuns(runs, moduleCounts);
+
+        m_decodedLabel->setText(
+            "Decoded number: " + QString::fromStdString(decodedNumber)
+        );
+
+        m_readStatus->setText("Barcode decoded successfully.");
+    }
+    catch (const std::exception& e)
+    {
+        m_decodedLabel->setText("Decoded number: -");
+        m_readStatus->setText(QString::fromStdString(e.what()));
+    }
 }
