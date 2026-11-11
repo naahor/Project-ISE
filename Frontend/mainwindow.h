@@ -16,13 +16,22 @@ public:
 private:
     QLineEdit*m_Input;
     QPushButton*m_Generate;
-    QPushButton*m_savebttn;
-    QLabel*m_BarcodePreview;
+    QPushButton*m_saveBtn;
+    QLabel*m_Preview;
     QLabel*m_Status;
-    QTabWidget*m_tabs   ;
+    QImage m_currentImage;
+    QTabWidget*m_tabs;
 
+    QPushButton *m_uploadBtn;
+    QLabel* m_readPreview;
+    QLabel* m_decodedLabel;
+    QLabel* m_readStatus;
 
 
     QWidget* createGenerateTab();
-    void OnGenerateClicked();
+    QWidget* createReadTab();
+private slots:
+    void onGenerateClicked();
+    void onSaveClicked();
+    void onUploadClicked();
 };

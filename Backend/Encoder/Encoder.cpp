@@ -39,11 +39,9 @@ int Encoder::pairValue(const string& digits, int index){
 }
 
 void Encoder::validate(const string& digits){
-
-    if (digits.length() != length){
-        throw invalid_argument("Barcode number must be exactly 6 digits long.");
+    if(digits.length()!=6){
+        throw invalid_argument("Must be a six digit number.");
     }
-
     for (int i = 0; i < length; i++){
 
         if (digits[i] < '0' || digits[i] > '9'){
