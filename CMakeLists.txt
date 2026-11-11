@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.19)
 project(increment111 LANGUAGES CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
-
+find_package(OpenCV REQUIRED)
 qt_standard_project_setup()
 
 qt_add_executable(increment111
@@ -14,17 +14,25 @@ qt_add_executable(increment111
     Backend/Encoder/Encoder.cpp
     Backend/imageGenerator/BarcodeImageGenerator.h
     Backend/imageGenerator/BarcodeImageGenerator.cpp
+    Backend/Decoder/Decoder.h
+    Backend/Decoder/Decoder.cpp
+    Backend/ImageProcessor/ImageProcessor.h
+    Backend/ImageProcessor/ImageProcessor.cpp    
 )
 
 target_link_libraries(increment111
     PRIVATE
         Qt::Core
         Qt::Widgets
+        ${OpenCV_LIBS}
 )
 target_include_directories(increment111 PRIVATE
     Backend
     Backend/imageGenerator
     Frontend
+    Backend/Decoder
+    Backend/ImageProcessor
+    ${OpenCV_INCLUDE_DIRS}
 )
 install(TARGETS increment111
     BUNDLE  DESTINATION .

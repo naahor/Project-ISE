@@ -1,6 +1,7 @@
 #include "../Frontend/mainwindow.h"
 #include "../Encoder/Encoder.h"
 #include "../Backend/imageGenerator/BarcodeImageGenerator.h"
+#include <../Decoder/Decoder.h>
 
 #include <QTabWidget>
 #include <QLabel>
@@ -15,7 +16,7 @@
 #include <QMessageBox>
 #include <stdexcept>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Barcode Generator & Reader");
     resize(700, 500);
 
@@ -79,10 +80,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 }
 
 QWidget* MainWindow::createGenerateTab() {
-    QWidget *page = new QWidget;
-    QVBoxLayout *layout = new QVBoxLayout(page);
+    QWidget* page = new QWidget;
+    QVBoxLayout* layout = new QVBoxLayout(page);
 
-    QHBoxLayout *inputRow = new QHBoxLayout;
+    QHBoxLayout* inputRow = new QHBoxLayout;
     inputRow->addWidget(new QLabel("6-digit number:"));
 
     m_Input = new QLineEdit;
@@ -117,8 +118,8 @@ QWidget* MainWindow::createGenerateTab() {
 }
 
 QWidget* MainWindow::createReadTab() {
-    QWidget *page = new QWidget;
-    QVBoxLayout *layout = new QVBoxLayout(page);
+    QWidget* page = new QWidget;
+    QVBoxLayout* layout = new QVBoxLayout(page);
 
     m_uploadBtn = new QPushButton("Upload Barcode Image");
     layout->addWidget(m_uploadBtn);
@@ -156,7 +157,8 @@ void MainWindow::onGenerateClicked() {
         m_saveBtn->setEnabled(true);
         m_Status->setStyleSheet("color: green;");
         m_Status->setText("Barcode generated for " + text);
-    } catch (const std::exception &e) {
+    }
+    catch (const std::exception& e) {
         m_saveBtn->setEnabled(false);
         m_Status->setStyleSheet("color: red;");
         m_Status->setText(QString("Error: ") + e.what());
@@ -180,7 +182,8 @@ void MainWindow::onSaveClicked() {
     if (m_currentImage.save(path, "PNG")) {
         m_Status->setStyleSheet("color: green;");
         m_Status->setText("Saved to " + path);
-    } else {
+    }
+    else {
         m_Status->setStyleSheet("color: red;");
         m_Status->setText("Error: could not save the image.");
     }
@@ -190,10 +193,7 @@ void MainWindow::onUploadClicked() {
     const QString path = QFileDialog::getOpenFileName(
         this, "Open barcode image", QString(),
         "Images (*.png *.jpg *.jpeg *.bmp)");
-
-    if (path.isEmpty()) {
-        return;
-    }
+    if (path.isEmpty()) return;
 
     QImage img(path);
     if (img.isNull()) {
@@ -201,13 +201,41 @@ void MainWindow::onUploadClicked() {
         m_readStatus->setText("Error: could not open that image.");
         return;
     }
-
     m_readPreview->setPixmap(QPixmap::fromImage(img));
 
-    // TODO: call the decoder here when it is ready, e.g.
-    // std::string number = Decoder::decode(path.toStdString());
-    // m_decodedLabel->setText("Decoded number: " + QString::fromStdString(number));
-    m_decodedLabel->setText("Decoded number: -");
-    m_readStatus->setStyleSheet("color: gray;");
-    m_readStatus->setText("Image loaded (decoder not connected yet).");
+    try {
+        ImageProcessor proc;
+        if (!proc.loadImage(path.toStdString()))
+            throw std::runtime_error("OpenCV could not load the image.");
+
+        cv::Mat gray = proc.convertToGrayscale(proc.getCurrentImage());
+        cv::Mat bin = proc.applyThreshold(gray, proc.getThreshold());
+
+
+        std::vector<int> line = proc.scanHorizontalLine(bin, bin.rows / 2);
+        std::vector<ColorRun> runs = proc.measureRuns(line);
+
+        // Strip white quiet zones so the first run is the black start bar
+        if (!runs.empty() && !runs.front().isBlack) runs.erase(runs.begin());
+        if (!runs.empty() && !runs.back().isBlack)  runs.pop_back();
+        if (runs.empty())
+            throw std::runtime_error("No barcode bars found in the image.");
+
+        // Whole barcode = 68 modules (start 11 + 4x11 + stop 13)
+        int totalPx = 0;
+        for (const auto& r : runs) totalPx += r.pixelLength;
+        int moduleWidth = std::max(1, static_cast<int>(std::round(totalPx / 68.0)));
+
+        std::vector<int> modules = proc.normalizeRuns(runs, moduleWidth);
+        std::string number = Decoder::decodeRuns(runs, modules);
+
+        m_decodedLabel->setText("Decoded number: " + QString::fromStdString(number));
+        m_readStatus->setStyleSheet("color: green;");
+        m_readStatus->setText("Barcode decoded successfully.");
+    }
+    catch (const std::exception& e) {
+        m_decodedLabel->setText("Decoded number: -");
+        m_readStatus->setStyleSheet("color: red;");
+        m_readStatus->setText(QString("Error: ") + e.what());
+    }
 }
