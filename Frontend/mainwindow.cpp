@@ -3,7 +3,7 @@
 
 #include "Encoder/Encoder.h"
 #include "BarcodeImageGenerator.h"
-#include "Decoder.h"
+#include "../Backend/Decoder/Decoder.h"
 #include "ImageProcessor.h"
 
 #include <QTabWidget>
