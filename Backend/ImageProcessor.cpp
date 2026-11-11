@@ -1,3 +1,4 @@
+
 #include "ImageProcessor.h"
 #include <stdexcept>
 #include <cmath>
@@ -88,7 +89,6 @@ vector<int> ImageProcessor::scanHorizontalLine(const cv::Mat& binImg, int y) con
     return linePixels;
 }
 
-
 vector<ColorRun> ImageProcessor::measureRuns(const vector<int>& scanLinePixels) const
 {
     if (scanLinePixels.empty())
@@ -99,13 +99,11 @@ vector<ColorRun> ImageProcessor::measureRuns(const vector<int>& scanLinePixels) 
     int start = 0;
     int end = static_cast<int>(scanLinePixels.size()) - 1;
 
-    // Skip the white quiet zone at the beginning
     while (start <= end && scanLinePixels[start] == 255)
     {
         start++;
     }
 
-    // Skip the white quiet zone at the end
     while (end >= start && scanLinePixels[end] == 255)
     {
         end--;
@@ -142,7 +140,6 @@ vector<ColorRun> ImageProcessor::measureRuns(const vector<int>& scanLinePixels) 
 
     return runs;
 }
-
 
 vector<int> ImageProcessor::normalizeRuns(const vector<ColorRun>& runs, int baseModuleWidth) const
 {

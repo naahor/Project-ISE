@@ -1,3 +1,4 @@
+
 #include "mainwindow.h"
 
 #include "Encoder/Encoder.h"
@@ -17,6 +18,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QFrame>
+#include <QFont>
 
 #include <stdexcept>
 #include <string>
