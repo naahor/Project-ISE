@@ -23,6 +23,59 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabs->addTab(createGenerateTab(), "Generate");
     m_tabs->addTab(createReadTab(), "Read");
     setCentralWidget(m_tabs);
+    setStyleSheet(R"(
+    QMainWindow, QWidget {
+        background-color: #F5F4ED;
+        color: #141413;
+        font-size: 14px;
+    }
+
+    QTabWidget::pane {
+        border: 1px solid #B0AEA5;
+        border-radius: 6px;
+        background-color: #F5F4ED;
+    }
+    QTabBar::tab {
+        background-color: #E8E6DC;
+        color: #141413;
+        padding: 8px 20px;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+        margin-right: 2px;
+    }
+    QTabBar::tab:selected {
+        background-color: #D97757;
+        color: #FFFFFF;
+    }
+    QTabBar::tab:hover:!selected {
+        background-color: #DDD9CC;
+    }
+
+    QPushButton {
+        background-color: #D97757;
+        color: #FFFFFF;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 16px;
+    }
+    QPushButton:hover    { background-color: #C6613F; }
+    QPushButton:pressed  { background-color: #B5532F; }
+    QPushButton:disabled {
+        background-color: #E8E6DC;
+        color: #B0AEA5;
+    }
+
+    QLineEdit {
+        background-color: #FFFFFF;
+        color: #141413;
+        border: 1px solid #B0AEA5;
+        border-radius: 6px;
+        padding: 6px;
+    }
+    QLineEdit:focus { border: 1px solid #D97757; }
+
+    QLabel { background-color: transparent; }
+)");
 }
 
 QWidget* MainWindow::createGenerateTab() {
