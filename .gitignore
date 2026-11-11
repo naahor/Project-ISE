@@ -103,3 +103,6 @@ qrc_*.cpp
 *.sln
 *.vcxproj
 *.vcxproj.filters
+
+# Qt Creator local settings
+.qtcreator/
